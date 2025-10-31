@@ -1,6 +1,61 @@
 [package]
-name = "secon-rust-collector"
+name = "selinux-system-service"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+# Async runtime
+tokio = { version = "1.40", features = ["full"] }
+
+# SSH operations
+async-ssh2-tokio = "0.10.0"
+ssh2 = "0.9.5"
+
+# eBPF (we'll use Aya for pure Rust eBPF)
+aya = { version = "0.13.1", features = ["async_tokio"] }
+aya-log = "0.2"
+aya-ebpf = "0.1.1"
+bytes = "1.7"
+
+# gRPC server
+tonic = "0.14.2"
+prost = "0.14.1"
+tower = "0.5"
+
+# REST alternative
+axum = { version = "0.8.6", features = ["ws"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+thiserror = "2.0.17"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Configuration
+config = "0.15.18"
+dotenv = "0.15"
+
+# Utilities
+futures = "0.3"
+async-trait = "0.1"
+uuid = { version = "1.10", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+regex = "1.10"
+base64 = "0.22"
+validator = "0.20.0"
+tower-http = { version = "0.6.6", features = ["full"] }
+
+[build-dependencies]
+tonic-build = "0.14.2"
+
+[dev-dependencies]
+tempfile = "3.10"
+mockall = "0.13"
+
+[profile.release]
+lto = true
+codegen-units = 1
