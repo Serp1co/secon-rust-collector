@@ -47,14 +47,15 @@ impl ConnectionManager {
         let session = match &auth {
             AuthMethod::Password { password } => {
                 self.ssh_manager
-                    .connect(host, port, username, password)
+                    .connect_with_uname_password(host, port, username, password)
                     .await?
             }
-            AuthMethod::PrivateKey { key, passphrase } => {
+            AuthMethod::PublicKey { key_path } => {
                 self.ssh_manager
-                    .connect_with_key(host, port, username, key, passphrase.clone())
+                    .connect_with_public_key(host, port, username, key_path)
                     .await?
             }
+            _ => {panic!("Method {:?} is not supported", auth);}
         };
 
         // Test the connection
@@ -111,20 +112,20 @@ impl ConnectionManager {
         let new_session = match &metadata.auth {
             AuthMethod::Password { password } => {
                 self.ssh_manager
-                    .connect(&metadata.info.host, metadata.info.port, &metadata.info.username, password)
+                    .connect_with_uname_password(&metadata.info.host, metadata.info.port, &metadata.info.username, password)
                     .await?
             }
-            AuthMethod::PrivateKey { key, passphrase } => {
+            AuthMethod::PublicKey { key_path} => {
                 self.ssh_manager
-                    .connect_with_key(
+                    .connect_with_public_key(
                         &metadata.info.host,
                         metadata.info.port,
                         &metadata.info.username,
-                        key,
-                        passphrase.clone(),
+                        key_path,
                     )
                     .await?
             }
+            _ => {panic!("Method {:?} is not supported", metadata.auth);}
         };
 
         let session = Arc::new(new_session);

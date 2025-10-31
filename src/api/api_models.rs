@@ -2,10 +2,12 @@ use serde::{Deserialize, Serialize};
 use crate::selinux::selinux::SelinuxStatus;
 use crate::ebpf::ebpf::{EbpfProgram, ProgramType};
 use chrono::{DateTime, Utc};
+use validator::Validate;
+use utoipa::ToSchema;
 
 // ========== Connection Models ==========
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Validate, ToSchema)]
 pub struct ConnectionRequest {
     #[validate(length(min = 1, max = 255))]
     pub host: String,
@@ -20,7 +22,7 @@ pub struct ConnectionRequest {
     pub tags: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type")]
 pub enum AuthMethod {
     Password { password: String },
@@ -28,9 +30,12 @@ pub enum AuthMethod {
         key: String,
         passphrase: Option<String>
     },
+    PublicKey {
+        key_path: String,
+    }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ConnectionInfo {
     pub id: String,
     pub host: String,
@@ -39,11 +44,13 @@ pub struct ConnectionInfo {
     pub alias: Option<String>,
     pub tags: Vec<String>,
     pub status: ConnectionStatus,
+    #[schema(value_type = String, example = "2025-10-31T16:40:57Z")]
     pub created_at: DateTime<Utc>,
+    #[schema(value_type = String, example = "2025-10-31T16:40:57Z")]
     pub last_used: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub enum ConnectionStatus {
     Connected,
     Disconnected,
@@ -52,34 +59,35 @@ pub enum ConnectionStatus {
 
 // ========== SELinux Models ==========
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SelinuxStatusResponse {
+#[derive(Debug, Serialize, Deserialize, ToSchema)]pub struct SelinuxStatusResponse {
     pub host: String,
+    #[schema(value_type = String)]
     pub status: SelinuxStatus,
+    #[schema(value_type = String, example = "2025-10-31T16:40:57Z")]
     pub timestamp: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Validate, ToSchema)]
 pub struct SetSelinuxModeRequest {
-    #[validate(custom = "validate_selinux_mode")]
+    #[validate(custom (function = "validate_selinux_mode"))]
     pub mode: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct SelinuxBoolean {
     pub name: String,
     pub value: bool,
     pub description: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct SelinuxBooleansResponse {
     pub host: String,
     pub booleans: Vec<SelinuxBoolean>,
     pub total: usize,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Validate, ToSchema)]
 pub struct SetBooleanRequest {
     #[validate(length(min = 1, max = 100))]
     pub name: String,
@@ -88,14 +96,14 @@ pub struct SetBooleanRequest {
     pub persistent: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct AvcDenial {
     pub timestamp: Option<DateTime<Utc>>,
     pub raw: String,
     pub parsed: Option<ParsedAvcDenial>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ParsedAvcDenial {
     pub source_context: String,
     pub target_context: String,
@@ -105,7 +113,7 @@ pub struct ParsedAvcDenial {
     pub comm: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct AvcDenialsResponse {
     pub host: String,
     pub denials: Vec<AvcDenial>,
@@ -113,13 +121,13 @@ pub struct AvcDenialsResponse {
     pub time_range_minutes: u32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Validate, ToSchema)]
 pub struct GetContextRequest {
     #[validate(length(min = 1, max = 4096))]
     pub path: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ContextResponse {
     pub path: String,
     pub context: String,
@@ -129,7 +137,7 @@ pub struct ContextResponse {
     pub level: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Validate, ToSchema)]
 pub struct RestoreContextRequest {
     #[validate(length(min = 1, max = 4096))]
     pub path: String,
@@ -139,7 +147,7 @@ pub struct RestoreContextRequest {
 
 // ========== eBPF Models ==========
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct EbpfSupportResponse {
     pub supported: bool,
     pub kernel_version: String,
@@ -149,21 +157,24 @@ pub struct EbpfSupportResponse {
     pub issues: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct LoadProgramRequest {
+    #[schema(value_type = String)]
     pub program_type: ProgramType,
     pub name: Option<String>,
     pub custom_source: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ProgramResponse {
+    #[schema(value_type = Object)]
     pub program: EbpfProgram,
+    #[schema(value_type = String, example = "2025-10-31T16:40:57Z")]
     pub loaded_at: DateTime<Utc>,
     pub host: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ProgramListResponse {
     pub host: String,
     pub programs: Vec<String>,
@@ -172,14 +183,14 @@ pub struct ProgramListResponse {
 
 // ========== Batch Operations ==========
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Validate, ToSchema)]
 pub struct BatchOperationRequest {
     #[validate(length(min = 1, max = 100))]
     pub connection_ids: Vec<String>,
     pub operation: BatchOperation,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type")]
 pub enum BatchOperation {
     GetSelinuxStatus,
@@ -189,14 +200,14 @@ pub enum BatchOperation {
     ExecuteCommand { command: String, use_sudo: bool },
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct BatchOperationResponse {
     pub operation_id: String,
     pub results: Vec<BatchResult>,
     pub summary: BatchSummary,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct BatchResult {
     pub connection_id: String,
     pub host: String,
@@ -206,7 +217,7 @@ pub struct BatchResult {
     pub duration_ms: u64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct BatchSummary {
     pub total: usize,
     pub successful: usize,
@@ -216,7 +227,7 @@ pub struct BatchSummary {
 
 // ========== Command Execution ==========
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Validate, ToSchema)]
 pub struct ExecuteCommandRequest {
     #[validate(length(min = 1, max = 10000))]
     pub command: String,
@@ -230,7 +241,7 @@ fn default_timeout() -> u64 {
     30
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct CommandResponse {
     pub stdout: String,
     pub stderr: String,
@@ -240,7 +251,7 @@ pub struct CommandResponse {
 
 // ========== Health & Monitoring ==========
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct HealthResponse {
     pub status: HealthStatus,
     pub version: String,
@@ -249,7 +260,7 @@ pub struct HealthResponse {
     pub total_requests: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub enum HealthStatus {
     Healthy,
     Degraded,
@@ -258,7 +269,7 @@ pub enum HealthStatus {
 
 // ========== Error Response ==========
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ErrorResponse {
     pub error: String,
     pub message: String,
@@ -281,7 +292,7 @@ fn validate_selinux_mode(mode: &str) -> Result<(), validator::ValidationError> {
 
 // ========== Pagination ==========
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Validate, ToSchema)]
 pub struct PaginationParams {
     #[validate(range(min = 1, max = 100))]
     #[serde(default = "default_page_size")]
@@ -299,7 +310,7 @@ fn default_page() -> usize {
     1
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct PaginatedResponse<T> {
     pub items: Vec<T>,
     pub total: usize,

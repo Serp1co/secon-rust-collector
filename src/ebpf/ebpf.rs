@@ -1,7 +1,7 @@
-use crate::ssh::ssh::{SshSession, Result as SshResult};
+use crate::ssh::ssh::SshSession;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 #[derive(Error, Debug)]
 pub enum EbpfError {

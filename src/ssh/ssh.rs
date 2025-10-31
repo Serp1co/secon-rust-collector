@@ -31,7 +31,7 @@ impl SshManager {
     }
 
     /// Connect to a host with password authentication
-    pub async fn connect(
+    pub async fn connect_with_uname_password(
         &self,
         host: &str,
         port: u16,
@@ -40,9 +40,8 @@ impl SshManager {
     ) -> Result<SshSession> {
         info!("Connecting to {}:{} as {}", host, port, username);
 
-        let addr = format!("{}:{}", host, port);
         let client = Client::connect(
-            addr.parse().map_err(|e| SshError::ConnectionError(format!("Invalid address: {}", e)))?,
+            (host, port),
             username,
             AuthMethod::Password(password.to_string()),
             ServerCheckMethod::NoCheck, //TODO: use known host list
@@ -58,23 +57,20 @@ impl SshManager {
     }
 
     /// Connect with SSH key authentication
-    pub async fn connect_with_key(
+    pub async fn connect_with_public_key(
         &self,
         host: &str,
         port: u16,
         username: &str,
-        private_key: &str,
-        passphrase: Option<String>,
+        key_file_path: &str,
     ) -> Result<SshSession> {
         info!("Connecting to {}:{} as {} with key", host, port, username);
 
-        let addr = format!("{}:{}", host, port);
         let client = Client::connect(
-            addr.parse().map_err(|e| SshError::ConnectionError(format!("Invalid address: {}", e)))?,
+            (host, port),
             username,
-            AuthMethod::PublicKey {
-                key: private_key.to_string(),
-                passphrase,
+            AuthMethod::PublicKeyFile {
+                key_file_path: key_file_path.parse().unwrap(),
             },
             ServerCheckMethod::NoCheck, //TODO: use known host list
         )

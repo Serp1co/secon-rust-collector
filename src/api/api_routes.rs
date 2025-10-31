@@ -12,13 +12,13 @@ use tower_http::{
     cors::{Any, CorsLayer},
     trace::TraceLayer,
 };
-use tower_http::validate_request::ValidateRequest;
 
-use crate::api::{
-    api_error::{ApiError, ApiResult},
-    api_models::*,
-    api_connection_manager::ConnectionManager,
-};
+use validator::Validate;
+
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
+
+use crate::api::{api_error::{ApiError, ApiResult}, api_models::*, api_connection_manager::ConnectionManager, api_models};
 use crate::ebpf::ebpf;
 use crate::selinux::selinux;
 
@@ -38,37 +38,76 @@ impl AppState {
     }
 }
 
+
+#[derive(OpenApi)]
+#[openapi(
+    paths(
+        health_check,
+        create_connection,
+        list_connections,
+        get_connection,
+        delete_connection,
+        test_connection,
+        get_selinux_status,
+        set_selinux_mode,
+        get_selinux_booleans,
+        set_selinux_boolean,
+        get_avc_denials,
+        get_context,
+        restore_context,
+        check_ebpf_support,
+        list_ebpf_programs,
+        load_ebpf_program,
+        unload_ebpf_program,
+        execute_command,
+        batch_operation
+    ),
+    tags(
+        (name = "health", description = "Service health"),
+        (name = "connections", description = "Manage SSH connections"),
+        (name = "selinux", description = "SELinux operations"),
+        (name = "ebpf", description = "eBPF operations"),
+        (name = "batch", description = "Batch operations")
+    )
+)]
+struct ApiDoc;
+
+
 pub fn create_router() -> Router {
     let state = Arc::new(AppState::new());
 
     Router::new()
+        .merge(
+            SwaggerUi::new("/swagger-ui")
+                .url("/api-docs/openapi.json", ApiDoc::openapi())
+        )
         // Health check
         .route("/health", get(health_check))
 
         // Connection management
         .route("/connections", post(create_connection))
         .route("/connections", get(list_connections))
-        .route("/connections/:id", get(get_connection))
-        .route("/connections/:id", delete(delete_connection))
-        .route("/connections/:id/test", post(test_connection))
+        .route("/connections/{id}", get(get_connection))
+        .route("/connections/{id}", delete(delete_connection))
+        .route("/connections/{id}/test", post(test_connection))
 
         // SELinux operations
-        .route("/connections/:id/selinux/status", get(get_selinux_status))
-        .route("/connections/:id/selinux/mode", put(set_selinux_mode))
-        .route("/connections/:id/selinux/booleans", get(get_selinux_booleans))
-        .route("/connections/:id/selinux/booleans", put(set_selinux_boolean))
-        .route("/connections/:id/selinux/denials", get(get_avc_denials))
-        .route("/connections/:id/selinux/context", get(get_context))
-        .route("/connections/:id/selinux/restore", post(restore_context))
+        .route("/connections/{id}/selinux/status", get(get_selinux_status))
+        .route("/connections/{id}/selinux/mode", put(set_selinux_mode))
+        .route("/connections/{id}/selinux/booleans", get(get_selinux_booleans))
+        .route("/connections/{id}/selinux/booleans", put(set_selinux_boolean))
+        .route("/connections/{id}/selinux/denials", get(get_avc_denials))
+        .route("/connections/{id}/selinux/context", get(get_context))
+        .route("/connections/{id}/selinux/restore", post(restore_context))
 
         // eBPF operations
-        .route("/connections/:id/ebpf/support", get(check_ebpf_support))
-        .route("/connections/:id/ebpf/programs", get(list_ebpf_programs))
-        .route("/connections/:id/ebpf/programs", post(load_ebpf_program))
-        .route("/connections/:id/ebpf/programs/:program_id", delete(unload_ebpf_program))
+        .route("/connections/{id}/ebpf/support", get(check_ebpf_support))
+        .route("/connections/{id}/ebpf/programs", get(list_ebpf_programs))
+        .route("/connections/{id}/ebpf/programs", post(load_ebpf_program))
+        .route("/connections/{id}/ebpf/programs/{program_id}", delete(unload_ebpf_program))
 
         // Command execution
-        .route("/connections/:id/execute", post(execute_command))
+        .route("/connections/{id}/execute", post(execute_command))
 
         // Batch operations
         .route("/batch", post(batch_operation))
@@ -90,6 +129,14 @@ pub fn create_router() -> Router {
 
 // ========== Health Check ==========
 
+#[utoipa::path(
+    get,
+    path = "/health",
+    responses(
+        (status = 200, body = HealthResponse)
+    ),
+    tag = "health"
+)]
 async fn health_check(State(state): State<Arc<AppState>>) -> ApiResult<Json<HealthResponse>> {
     let uptime = state.start_time.elapsed().as_secs();
     let requests = state.request_counter.load(std::sync::atomic::Ordering::Relaxed);
@@ -106,11 +153,21 @@ async fn health_check(State(state): State<Arc<AppState>>) -> ApiResult<Json<Heal
 
 // ========== Connection Management ==========
 
+#[utoipa::path(
+    post,
+    path = "/connections",
+    request_body = ConnectionRequest,
+    responses(
+        (status = 201, body = ConnectionInfo),
+        (status = 422, body = ErrorResponse)
+    ),
+    tag = "connections"
+)]
 async fn create_connection(
     State(state): State<Arc<AppState>>,
-    Json(mut req): Json<ConnectionRequest>,
+    Json(req): Json<ConnectionRequest>,
 ) -> ApiResult<(StatusCode, Json<ConnectionInfo>)> {
-    req.validate(&mut ())?;
+    req.validate()?;
 
     let id = state
         .connection_manager
@@ -129,11 +186,23 @@ async fn create_connection(
     Ok((StatusCode::CREATED, Json(info)))
 }
 
+#[utoipa::path(
+    get,
+    path = "/connections",
+    params(
+        ("page" = usize, Query, description = "Page number", example = 1),
+        ("page_size" = usize, Query, description = "Items per page", example = 20)
+    ),
+    responses(
+        (status = 200, body = PaginatedResponse<ConnectionInfo>)
+    ),
+    tag = "connections"
+)]
 async fn list_connections(
     State(state): State<Arc<AppState>>,
     Query(mut pagination): Query<PaginationParams>,
 ) -> ApiResult<Json<PaginatedResponse<ConnectionInfo>>> {
-    pagination.validate(&mut ())?;
+    pagination.validate()?;
 
     let connections = state.connection_manager.list_connections().await;
     let total = connections.len();
@@ -150,6 +219,18 @@ async fn list_connections(
     )))
 }
 
+#[utoipa::path(
+    get,
+    path = "/connections/{id}",
+    params(
+        ("id" = String, Path, description = "Connection id")
+    ),
+    responses(
+        (status = 200, body = ConnectionInfo),
+        (status = 404, body = ErrorResponse)
+    ),
+    tag = "connections"
+)]
 async fn get_connection(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -163,6 +244,18 @@ async fn get_connection(
     Ok(Json(info))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/connections/{id}",
+    params(
+        ("id" = String, Path, description = "Connection id")
+    ),
+    responses(
+        (status = 204, description = "Deleted"),
+        (status = 404, body = ErrorResponse)
+    ),
+    tag = "connections"
+)]
 async fn delete_connection(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -176,6 +269,17 @@ async fn delete_connection(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    post,
+    path = "/connections/{id}/test",
+    params(
+        ("id" = String, Path, description = "Connection id")
+    ),
+    responses(
+        (status = 200, description = "Connection test result")
+    ),
+    tag = "connections"
+)]
 async fn test_connection(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -195,6 +299,18 @@ async fn test_connection(
 
 // ========== SELinux Operations ==========
 
+#[utoipa::path(
+    get,
+    path = "/connections/{id}/selinux/status",
+    params(
+        ("id" = String, Path, description = "Connection id")
+    ),
+    responses(
+        (status = 200, body = SelinuxStatusResponse),
+        (status = 404, body = ErrorResponse)
+    ),
+    tag = "selinux"
+)]
 async fn get_selinux_status(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -209,12 +325,24 @@ async fn get_selinux_status(
     }))
 }
 
+#[utoipa::path(
+    put,
+    path = "/connections/{id}/selinux/mode",
+    params(
+        ("id" = String, Path, description = "Connection id")
+    ),
+    request_body = SetSelinuxModeRequest,
+    responses(
+        (status = 200, body = SelinuxStatusResponse)
+    ),
+    tag = "selinux"
+)]
 async fn set_selinux_mode(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Json(mut req): Json<SetSelinuxModeRequest>,
 ) -> ApiResult<StatusCode> {
-    req.validate(&mut ())?;
+    req.validate()?;
 
     let session = state.connection_manager.get_session(&id).await?;
     let mode = match req.mode.to_lowercase().as_str() {
@@ -228,6 +356,17 @@ async fn set_selinux_mode(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    get,
+    path = "/connections/{id}/selinux/booleans",
+    params(
+        ("id" = String, Path, description = "Connection id")
+    ),
+    responses(
+        (status = 200, body = SelinuxBooleansResponse)
+    ),
+    tag = "selinux"
+)]
 async fn get_selinux_booleans(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -253,12 +392,24 @@ async fn get_selinux_booleans(
     }))
 }
 
+#[utoipa::path(
+    put,
+    path = "/connections/{id}/selinux/booleans",
+    params(
+        ("id" = String, Path, description = "Connection id")
+    ),
+    request_body = SetBooleanRequest,
+    responses(
+        (status = 200, body = SelinuxBooleansResponse)
+    ),
+    tag = "selinux"
+)]
 async fn set_selinux_boolean(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Json(mut req): Json<SetBooleanRequest>,
 ) -> ApiResult<StatusCode> {
-    req.validate(&mut ())?;
+    req.validate()?;
 
     let session = state.connection_manager.get_session(&id).await?;
     selinux::set_boolean(&*session, &req.name, req.value).await?;
@@ -266,6 +417,17 @@ async fn set_selinux_boolean(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    get,
+    path = "/connections/{id}/selinux/denials",
+    params(
+        ("id" = String, Path, description = "Connection id")
+    ),
+    responses(
+        (status = 200, body = AvcDenialsResponse)
+    ),
+    tag = "selinux"
+)]
 async fn get_avc_denials(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -298,12 +460,24 @@ async fn get_avc_denials(
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/connections/{id}/selinux/context",
+    params(
+        ("id" = String, Path, description = "Connection id"),
+        ("path" = String, Query, description = "Path to check context")
+    ),
+    responses(
+        (status = 200, body = ContextResponse)
+    ),
+    tag = "selinux"
+)]
 async fn get_context(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Json(mut req): Json<GetContextRequest>,
 ) -> ApiResult<Json<ContextResponse>> {
-    req.validate(&mut ())?;
+    req.validate()?;
 
     let session = state.connection_manager.get_session(&id).await?;
     let context = selinux::get_context(&*session, &req.path).await?;
@@ -321,12 +495,24 @@ async fn get_context(
     }))
 }
 
+#[utoipa::path(
+    post,
+    path = "/connections/{id}/selinux/restore",
+    params(
+        ("id" = String, Path, description = "Connection id")
+    ),
+    request_body = RestoreContextRequest,
+    responses(
+        (status = 200, body = ContextResponse)
+    ),
+    tag = "selinux"
+)]
 async fn restore_context(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Json(mut req): Json<RestoreContextRequest>,
 ) -> ApiResult<StatusCode> {
-    req.validate(&mut ())?;
+    req.validate()?;
 
     let session = state.connection_manager.get_session(&id).await?;
     selinux::restore_context(&*session, &req.path, req.recursive).await?;
@@ -336,6 +522,17 @@ async fn restore_context(
 
 // ========== eBPF Operations ==========
 
+#[utoipa::path(
+    get,
+    path = "/connections/{id}/ebpf/support",
+    params(
+        ("id" = String, Path, description = "Connection id")
+    ),
+    responses(
+        (status = 200, body = EbpfSupportResponse)
+    ),
+    tag = "ebpf"
+)]
 async fn check_ebpf_support(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -369,6 +566,17 @@ async fn check_ebpf_support(
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/connections/{id}/ebpf/programs",
+    params(
+        ("id" = String, Path, description = "Connection id")
+    ),
+    responses(
+        (status = 200, body = ProgramListResponse)
+    ),
+    tag = "ebpf"
+)]
 async fn list_ebpf_programs(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -384,6 +592,18 @@ async fn list_ebpf_programs(
     }))
 }
 
+#[utoipa::path(
+    post,
+    path = "/connections/{id}/ebpf/programs",
+    params(
+        ("id" = String, Path, description = "Connection id")
+    ),
+    request_body = LoadProgramRequest,
+    responses(
+        (status = 201, body = ProgramResponse)
+    ),
+    tag = "ebpf"
+)]
 async fn load_ebpf_program(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -407,6 +627,18 @@ async fn load_ebpf_program(
     })))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/connections/{id}/ebpf/programs/{program_id}",
+    params(
+        ("id" = String, Path, description = "Connection id"),
+        ("program_id" = String, Path, description = "Program identifier")
+    ),
+    responses(
+        (status = 204, description = "Unloaded")
+    ),
+    tag = "ebpf"
+)]
 async fn unload_ebpf_program(
     State(state): State<Arc<AppState>>,
     Path((id, program_id)): Path<(String, String)>,
@@ -419,12 +651,23 @@ async fn unload_ebpf_program(
 
 // ========== Command Execution ==========
 
+#[utoipa::path(
+    post,
+    path = "/connections/{id}/execute",
+    params(
+        ("id" = String, Path, description = "Connection id")
+    ),
+    responses(
+        (status = 200, description = "Command execution result")
+    ),
+    tag = "connections"
+)]
 async fn execute_command(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Json(mut req): Json<ExecuteCommandRequest>,
 ) -> ApiResult<Json<CommandResponse>> {
-    req.validate(&mut ())?;
+    req.validate()?;
 
     let start = Instant::now();
     let session = state.connection_manager.get_session(&id).await?;
@@ -455,11 +698,21 @@ async fn execute_command(
 
 // ========== Batch Operations ==========
 
+#[utoipa::path(
+    post,
+    path = "/batch",
+    request_body = BatchOperationRequest,
+    responses(
+        (status = 200, body = BatchOperationResponse)
+    ),
+    tag = "batch"
+)]
 async fn batch_operation(
     State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
     Json(mut req): Json<BatchOperationRequest>,
 ) -> ApiResult<Json<BatchOperationResponse>> {
-    req.validate(&mut ())?;
+    req.validate()?;
 
     let operation_id = uuid::Uuid::new_v4().to_string();
     let start = Instant::now();

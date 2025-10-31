@@ -1,0 +1,98 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+Vagrant.configure("2") do |config|
+  # Use Rocky Linux 9
+  config.vm.box = "generic/rocky9"
+
+  # VM settings
+  config.vm.hostname = "selinux-test"
+
+  # Network configuration - allow access from host
+  config.vm.network "forwarded_port", guest: 22, host: 2222, id: "ssh"
+  config.vm.network "private_network", ip: "192.168.56.10"
+
+  # VirtualBox specific settings
+  config.vm.provider "virtualbox" do |vb|
+    vb.name = "selinux-test-vm"
+    vb.memory = "2048"
+    vb.cpus = 2
+    # Enable nested virtualization if needed
+    vb.customize ["modifyvm", :id, "--nested-hw-virt", "on"]
+  end
+
+  # Provision the VM
+  config.vm.provision "shell", inline: <<-SHELL
+    # Update system
+    dnf update -y
+
+    # Install required packages
+    dnf install -y \
+      policycoreutils \
+      policycoreutils-python-utils \
+      selinux-policy \
+      selinux-policy-targeted \
+      setroubleshoot-server \
+      audit \
+      httpd \
+      openssh-server
+
+    # Ensure SELinux is in enforcing mode
+    setenforce 1
+    sed -i 's/SELINUX=.*/SELINUX=enforcing/' /etc/selinux/config
+
+    # Create test user
+    useradd -m -s /bin/bash testuser || true
+    echo "testuser:testpass" | chpasswd
+    echo "testuser ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/testuser
+
+    # Enable services
+    systemctl enable --now sshd
+    systemctl enable --now auditd
+    systemctl enable --now httpd
+
+    # Create test directories and files
+    mkdir -p /var/www/html /home/testuser/web-content /home/testuser/logs
+
+    # Create test web file with correct context
+    echo "Test web content" > /var/www/html/index.html
+    restorecon -v /var/www/html/index.html
+
+    # Create user web content with wrong context (will generate denials)
+    echo "User web content" > /home/testuser/web-content/page.html
+    chown testuser:testuser /home/testuser/web-content/page.html
+
+    # Create a test script
+    cat > /home/testuser/test-script.sh << 'EOF'
+#!/bin/bash
+echo "Test script executed"
+cat /var/log/audit/audit.log
+EOF
+    chmod +x /home/testuser/test-script.sh
+    chown testuser:testuser /home/testuser/test-script.sh
+
+    # Set some SELinux booleans
+    setsebool -P httpd_can_network_connect on
+    setsebool -P httpd_read_user_content off
+
+    # Generate some SELinux denials for testing
+    # Try to access user content from httpd context (will be denied)
+    runcon system_u:system_r:httpd_t:s0 cat /home/testuser/web-content/page.html 2>&1 || true
+
+    # Display SELinux status
+    echo "=== SELinux Status ==="
+    sestatus
+
+    echo "=== SELinux Mode ==="
+    getenforce
+
+    echo "=== Recent Audit Log Entries ==="
+    tail -20 /var/log/audit/audit.log
+
+    echo ""
+    echo "=== VM Ready ==="
+    echo "SSH access: vagrant ssh"
+    echo "Or: ssh testuser@192.168.56.10 (password: testpass)"
+    echo "From Windows: ssh -p 2222 testuser@localhost (password: testpass)"
+  SHELL
+end

@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  secon-rust-collector:
+    build:
+      context: ..
+      dockerfile: compose/secon-rust-collector.Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - RUST_LOG=info
+      - PORT=3000
+      - BIND_ADDR=0.0.0.0
+    volumes:
+      # Mount SSH keys if needed
+      - ~/.ssh:/root/.ssh:ro
+    networks:
+      - selinux-net
+    extra_hosts:
+      - "vagrant-vm:192.168.56.10"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  selinux-net:
+    driver: bridge
