@@ -41,15 +41,23 @@ Vagrant.configure("2") do |config|
     setenforce 1
     sed -i 's/SELINUX=.*/SELINUX=enforcing/' /etc/selinux/config
 
+    # Enable password authentication for SSH
+    sed -i 's/^PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
+    sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+    # Add the line if it doesn't exist
+    grep -q "^PasswordAuthentication" /etc/ssh/sshd_config || echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config
+
     # Create test user
     useradd -m -s /bin/bash testuser || true
     echo "testuser:testpass" | chpasswd
     echo "testuser ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/testuser
 
     # Enable services
-    systemctl enable --now sshd
     systemctl enable --now auditd
     systemctl enable --now httpd
+    systemctl enable --now sshd
+    # Restart SSH to apply password authentication changes
+    systemctl restart sshd
 
     # Create test directories and files
     mkdir -p /var/www/html /home/testuser/web-content /home/testuser/logs
